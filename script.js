@@ -1,134 +1,261 @@
-let main = "x";
-let sert = [];
-let countx = 0;
-let county = 0;
-let f1 = document.querySelector(".ass");
-let x = document.getElementById("10");
-let y = document.getElementById("11");
+/* ============================================
+   THEME TOGGLE
+   ============================================ */
+const html        = document.documentElement;
+const themeToggle = document.getElementById('themeToggle');
 
-// استرجاع النتيجة من localStorage عند فتح الصفحة
-countx = parseInt(window.localStorage.getItem("x")) || 0;
-county = parseInt(window.localStorage.getItem("o")) || 0;
+// load saved theme
+const savedTheme = localStorage.getItem('xo_theme') || 'light';
+html.setAttribute('data-theme', savedTheme);
 
-x.innerHTML = `x is ${countx}`;
-y.innerHTML = `o is ${county}`;
+themeToggle.addEventListener('click', () => {
+  const current = html.getAttribute('data-theme');
+  const next    = current === 'light' ? 'dark' : 'light';
+  html.setAttribute('data-theme', next);
+  localStorage.setItem('xo_theme', next);
+});
 
-// prevent click on header
-let sh = document.getElementById("0");
+/* ============================================
+   GAME STATE
+   ============================================ */
+let board         = Array(9).fill('');
+let currentPlayer = 'X';
+let gameOver      = false;
+let vsAI          = true;
 
-function result() {
-  if (f1.innerHTML === "x winner") {
-    countx++;
-    window.localStorage.setItem("x", countx);
-    x.innerHTML = `x is ${countx}`;
-    y.innerHTML = `o is ${county}`;
-  } else if (f1.innerHTML === "o winner") {
-    county++;
-    window.localStorage.setItem("o", county);
-    y.innerHTML = `o is ${county}`;
-    x.innerHTML = `x is ${countx}`;
-  }
-}
-
-function endgame(n1, n2, n3) {
-  f1.innerHTML = `${sert[n1]} winner`;
-  document.getElementById(n1).style.backgroundColor = "#005758";
-  document.getElementById(n2).style.backgroundColor = "#005758";
-  document.getElementById(n3).style.backgroundColor = "#005758";
-  result();
-
-  // تعطيل كل الخلايا بعد الفوز
-  for (let i = 1; i <= 9; i++) {
-    let f3 = document.getElementById(i);
-    f3.onclick = null;
-  }
-
-  setInterval(function () {
-    f1.innerHTML += "*";
-  }, 1000);
-
-  setTimeout(function () {
-    location.reload();
-  }, 4000);
-}
-
-// زر عرض النتيجة
-let rt = document.querySelector(".result");
-rt.onclick = function () {
-  sh.style.height = "493px";
-
-  let rt2 = document.getElementById("10");
-  let rt3 = document.getElementById("11");
-
-  x.innerHTML = `x is ${countx}`;
-  y.innerHTML = `o is ${county}`;
-
-  if (rt2.style.display === "block" && rt3.style.display === "block") {
-    rt2.style.display = "none";
-    rt3.style.display = "none";
-    rt.innerHTML = "show result";
-    rt.style.backgroundColor = "#24b2e6";
-    sh.style.height = "405px";
-  } else {
-    rt2.style.display = "block";
-    rt3.style.display = "block";
-    rt.innerHTML = "close result";
-    rt.style.backgroundColor = "#005758";
-  }
+let scores = {
+  X: parseInt(localStorage.getItem('xo_x') || '0'),
+  O: parseInt(localStorage.getItem('xo_o') || '0')
 };
 
-// اللعب
-for (let i = 1; i <= 9; i++) {
-  let f2 = document.getElementById(i);
-  f2.onclick = function game() {
-    if (main === "x" && f2.innerHTML == "") {
-      f2.innerHTML = "x";
-      main = "o";
-      f1.innerHTML = "the role of o";
-    } else if (main === "o" && f2.innerHTML == "") {
-      f2.style.color = "red";
-      f2.innerHTML = "o";
-      main = "x";
-      f1.innerHTML = "the role of x";
+/* ============================================
+   ELEMENTS
+   ============================================ */
+const cells        = document.querySelectorAll('.cell');
+const statusText   = document.getElementById('statusText');
+const scoreXEl     = document.getElementById('scoreX');
+const scoreOEl     = document.getElementById('scoreO');
+const xLabel       = document.getElementById('xLabel');
+const oLabel       = document.getElementById('oLabel');
+const overlay      = document.getElementById('overlay');
+const overlayEmoji = document.getElementById('overlayEmoji');
+const overlayTitle = document.getElementById('overlayTitle');
+const overlayMsg   = document.getElementById('overlayMsg');
+const btnNew       = document.getElementById('btnNew');
+const btnReset     = document.getElementById('btnReset');
+const btnVsAI      = document.getElementById('btnVsAI');
+const btnVsHuman   = document.getElementById('btnVsHuman');
+const btnOverlay   = document.getElementById('btnOverlayClose');
+
+// Win combinations
+const WINS = [
+  [0,1,2],[3,4,5],[6,7,8],
+  [0,3,6],[1,4,7],[2,5,8],
+  [0,4,8],[2,4,6]
+];
+
+/* ============================================
+   INIT
+   ============================================ */
+updateScoreUI();
+updateStatus();
+
+/* ============================================
+   MODE SWITCH
+   ============================================ */
+btnVsAI.addEventListener('click', () => {
+  if (vsAI) return;
+  vsAI = true;
+  btnVsAI.classList.add('active');
+  btnVsHuman.classList.remove('active');
+  xLabel.textContent = 'X — أنت';
+  oLabel.textContent = 'O — كمبيوتر';
+  newGame();
+});
+
+btnVsHuman.addEventListener('click', () => {
+  if (!vsAI) return;
+  vsAI = false;
+  btnVsHuman.classList.add('active');
+  btnVsAI.classList.remove('active');
+  xLabel.textContent = 'X — لاعب 1';
+  oLabel.textContent = 'O — لاعب 2';
+  newGame();
+});
+
+/* ============================================
+   CELL CLICKS
+   ============================================ */
+cells.forEach(cell => {
+  cell.addEventListener('click', () => {
+    const i = parseInt(cell.dataset.i);
+    if (gameOver || board[i]) return;
+    if (vsAI && currentPlayer === 'O') return;
+
+    makeMove(i, currentPlayer);
+
+    if (!gameOver && vsAI && currentPlayer === 'O') {
+      updateStatus(); // show "بيفكر"
+      setTimeout(aiMove, 420);
     }
-    winner();
-    nowinner();
-  };
+  });
+});
+
+/* ============================================
+   MAKE MOVE
+   ============================================ */
+function makeMove(i, player) {
+  board[i] = player;
+  const cell = cells[i];
+  cell.textContent = player;
+  cell.classList.add(player === 'X' ? 'x-cell' : 'o-cell', 'taken');
+
+  const winner = checkWinner(board);
+  if (winner) {
+    highlightWin(winner.combo);
+    scores[winner.player]++;
+    updateScoreUI();
+    gameOver = true;
+
+    const isPlayerX = winner.player === 'X';
+    const isAI      = vsAI && winner.player === 'O';
+
+    setTimeout(() => {
+      showOverlay(
+        isAI    ? '🤖' : '🏆',
+        isAI    ? 'الكمبيوتر كسب!' : (vsAI ? 'فزت!' : `اللاعب ${winner.player} فاز!`),
+        isAI    ? 'جرب تاني وهتكسبه 💪' : 'أنت الأحسن! 🎉'
+      );
+    }, 450);
+
+  } else if (board.every(v => v)) {
+    gameOver = true;
+    setTimeout(() => showOverlay('🤝', 'تعادل!', 'الجولة الجاية هتكون أحسن'), 220);
+
+  } else {
+    currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
+    updateStatus();
+  }
 }
 
-function winner() {
-  for (let i = 1; i <= 9; i++) {
-    sert[i] = document.getElementById(i).innerHTML;
-  }
-  if (sert[1] == sert[2] && sert[2] == sert[3] && sert[1] !== "") { endgame(1, 2, 3); }
-  else if (sert[4] == sert[5] && sert[5] == sert[6] && sert[4] !== "") { endgame(4, 5, 6); }
-  else if (sert[7] == sert[8] && sert[8] == sert[9] && sert[7] !== "") { endgame(7, 8, 9); }
-  else if (sert[1] == sert[4] && sert[4] == sert[7] && sert[1] !== "") { endgame(1, 4, 7); }
-  else if (sert[2] == sert[5] && sert[5] == sert[8] && sert[2] !== "") { endgame(2, 5, 8); }
-  else if (sert[3] == sert[6] && sert[6] == sert[9] && sert[3] !== "") { endgame(3, 6, 9); }
-  else if (sert[1] == sert[5] && sert[5] == sert[9] && sert[1] !== "") { endgame(1, 5, 9); }
-  else if (sert[3] == sert[5] && sert[5] == sert[7] && sert[3] !== "") { endgame(3, 5, 7); }
+/* ============================================
+   AI — MINIMAX (unbeatable)
+   ============================================ */
+function aiMove() {
+  if (gameOver) return;
+  const result = minimax([...board], 'O', 0);
+  makeMove(result.index, 'O');
 }
 
-function nowinner() {
-  for (let i = 1; i <= 9; i++) {
-    sert[i] = document.getElementById(i).innerHTML;
-  }
-  if (
-    sert[1] !== "" && sert[2] !== "" && sert[3] !== "" &&
-    sert[4] !== "" && sert[5] !== "" && sert[6] !== "" &&
-    sert[7] !== "" && sert[8] !== "" && sert[9] !== ""
-  ) {
-    // تعطيل كل الخلايا
-    for (let i = 1; i <= 9; i++) {
-      document.getElementById(i).onclick = null;
+function minimax(b, player, depth) {
+  const w = winnerOf(b);
+  if (w === 'X') return { score: depth - 10 };
+  if (w === 'O') return { score: 10 - depth  };
+
+  const empty = b.reduce((acc, v, i) => v === '' ? [...acc, i] : acc, []);
+  if (empty.length === 0) return { score: 0 };
+
+  const isMax = player === 'O';
+  let best = { score: isMax ? -Infinity : Infinity, index: -1 };
+
+  for (const i of empty) {
+    b[i] = player;
+    const res = minimax([...b], player === 'O' ? 'X' : 'O', depth + 1);
+    b[i] = '';
+    if (isMax ? res.score > best.score : res.score < best.score) {
+      best = { score: res.score, index: i };
     }
-    f1.innerHTML = "no winner";
-    setInterval(function () {
-      f1.innerHTML += "*";
-    }, 1000);
-    setTimeout(function () {
-      location.reload();
-    }, 4000);
+  }
+  return best;
+}
+
+function winnerOf(b) {
+  for (const [a, c, d] of WINS) {
+    if (b[a] && b[a] === b[c] && b[c] === b[d]) return b[a];
+  }
+  return null;
+}
+
+/* ============================================
+   CHECK WINNER (live board)
+   ============================================ */
+function checkWinner(b) {
+  for (const combo of WINS) {
+    const [a, c, d] = combo;
+    if (b[a] && b[a] === b[c] && b[c] === b[d]) {
+      return { player: b[a], combo };
+    }
+  }
+  return null;
+}
+
+function highlightWin(combo) {
+  combo.forEach(i => cells[i].classList.add('win-cell'));
+}
+
+/* ============================================
+   STATUS
+   ============================================ */
+function updateStatus() {
+  if (gameOver) return;
+
+  if (vsAI) {
+    if (currentPlayer === 'X') {
+      statusText.innerHTML = `دورك — أنت <span class="x-turn">X</span>`;
+    } else {
+      statusText.innerHTML = `🤖 الكمبيوتر بيفكر...`;
+    }
+  } else {
+    if (currentPlayer === 'X') {
+      statusText.innerHTML = `دور اللاعب <span class="x-turn">X</span>`;
+    } else {
+      statusText.innerHTML = `دور اللاعب <span class="o-turn">O</span>`;
+    }
   }
 }
+
+/* ============================================
+   SCORE UI
+   ============================================ */
+function updateScoreUI() {
+  scoreXEl.textContent = scores.X;
+  scoreOEl.textContent = scores.O;
+  localStorage.setItem('xo_x', scores.X);
+  localStorage.setItem('xo_o', scores.O);
+}
+
+/* ============================================
+   OVERLAY
+   ============================================ */
+function showOverlay(emoji, title, msg) {
+  overlayEmoji.textContent = emoji;
+  overlayTitle.textContent = title;
+  overlayMsg.textContent   = msg;
+  overlay.classList.add('show');
+}
+
+/* ============================================
+   NEW GAME / RESET
+   ============================================ */
+function newGame() {
+  board         = Array(9).fill('');
+  currentPlayer = 'X';
+  gameOver      = false;
+
+  cells.forEach(cell => {
+    cell.textContent = '';
+    cell.className   = 'cell';
+  });
+
+  overlay.classList.remove('show');
+  updateStatus();
+}
+
+btnNew.addEventListener('click', newGame);
+btnOverlay.addEventListener('click', newGame);
+
+btnReset.addEventListener('click', () => {
+  scores = { X: 0, O: 0 };
+  updateScoreUI();
+  newGame();
+});
